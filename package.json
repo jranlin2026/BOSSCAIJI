@@ -1,0 +1,9 @@
+{
+  "name": "saas-ai-lead-finder",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "collect": "node src/collect-leads.mjs"
+  }
+}

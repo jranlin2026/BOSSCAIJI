@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "BOSS Lead Collector",
+  "version": "0.1.0",
+  "description": "Collect visible BOSS job cards into a CSV lead table.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "BOSS Lead Collector"
+  },
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "https://*.zhipin.com/*",
+    "https://*.bosszhipin.com/*"
+  ]
+}

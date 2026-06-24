@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RiskBird Company Enricher</title>
+    <style>
+      body {
+        width: 320px;
+        margin: 0;
+        padding: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #172033;
+        background: #f7f8fb;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 15px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        color: #526071;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        margin-bottom: 10px;
+        font-size: 12px;
+      }
+
+      button {
+        width: 100%;
+        height: 34px;
+        margin-top: 8px;
+        border: 0;
+        border-radius: 6px;
+        color: white;
+        background: #2878ff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        color: #172033;
+        background: #e8edf5;
+      }
+
+      button.danger {
+        background: #d83a3a;
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.6;
+      }
+
+      #status {
+        margin-top: 10px;
+        min-height: 18px;
+        color: #526071;
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>风鸟企业补全器</h1>
+    <p>在风鸟页面登录后，上传 BOSS 导出的 CSV。插件会逐个搜索公司，并采集页面可见的公开电话、邮箱、官网和手机号掩码。</p>
+    <input id="file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+    <button id="start">开始补全</button>
+    <button id="export" class="secondary">导出当前结果</button>
+    <button id="stop" class="danger">停止并导出当前结果</button>
+    <div id="status"></div>
+    <script src="vendor/xlsx.full.min.js"></script>
+    <script src="rules.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

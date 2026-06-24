@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "RiskBird Company Enricher",
+  "version": "0.1.0",
+  "description": "Use RiskBird pages to enrich BOSS company leads with visible public contacts.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "RiskBird Company Enricher"
+  },
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "https://riskbird.com/*",
+    "https://*.riskbird.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://riskbird.com/*", "https://*.riskbird.com/*"],
+      "js": ["rules.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
