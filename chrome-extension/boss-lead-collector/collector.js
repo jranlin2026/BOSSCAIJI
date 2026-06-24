@@ -4,6 +4,7 @@
     delayMs: 1100,
     minEvidenceLength: 20,
   };
+  const options = window.__bossLeadCollectorOptions || {};
 
   if (window.__bossLeadCollector?.isRunning) {
     window.__bossLeadCollector.showStatus("采集器已经在运行...");
@@ -210,24 +211,45 @@
     showStatus(`\u91c7\u96c6\u5b8c\u6210\uff1a${rows.length} \u6761\uff0cXLSX \u5df2\u4e0b\u8f7d`);
   }
 
-  function downloadCsv() {
+  async function maybeStartRiskbird(rows) {
+    if (!options.autoRiskbird) return;
+    if (!rows.length) {
+      showStatus("\u672a\u91c7\u96c6\u5230 BOSS \u7ebf\u7d22\uff0c\u4e0d\u542f\u52a8\u98ce\u9e1f\u8865\u5168");
+      return;
+    }
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "boss-auto-riskbird-start",
+        rows,
+      });
+      if (!response?.ok) throw new Error(response?.message || "RiskBird workflow failed to start.");
+      showStatus(`BOSS \u91c7\u96c6\u5b8c\u6210\uff1a${rows.length} \u6761\uff0c\u5df2\u6253\u5f00\u98ce\u9e1f\u8865\u5168`);
+    } catch (error) {
+      showStatus(`BOSS \u91c7\u96c6\u5b8c\u6210\uff0c\u4f46\u98ce\u9e1f\u81ea\u52a8\u542f\u52a8\u5931\u8d25\uff1a${error.message || error}`);
+    }
+  }
+
+  async function downloadCsv() {
     if (state.hasDownloaded) return;
     state.hasDownloaded = true;
     const rows = [...state.seen.values()];
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     if (globalThis.XLSX?.utils?.aoa_to_sheet) {
       downloadXlsx(rows, timestamp);
+      await maybeStartRiskbird(rows);
       return;
     }
     downloadCsvFallback(rows, timestamp);
+    await maybeStartRiskbird(rows);
   }
 
-  function stopAndDownload() {
+  async function stopAndDownload() {
     state.stopRequested = true;
     collectOnce();
     state.isRunning = false;
     window.__bossLeadCollector.isRunning = false;
-    downloadCsv();
+    await downloadCsv();
   }
 
   async function run() {
@@ -243,7 +265,7 @@
     collectOnce();
     state.isRunning = false;
     window.__bossLeadCollector.isRunning = false;
-    downloadCsv();
+    await downloadCsv();
   }
 
   run();

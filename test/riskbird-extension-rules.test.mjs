@@ -125,6 +125,36 @@ test("boss collector exports xlsx when the XLSX library is available", async () 
   assert.match(collectorCode, /\.xlsx`/);
 });
 
+test("boss extension declares an automatic RiskBird workflow", async () => {
+  const manifest = JSON.parse(await readFile("chrome-extension/boss-lead-collector/manifest.json", "utf8"));
+  const popupHtml = await readFile("chrome-extension/boss-lead-collector/popup.html", "utf8");
+  const popupJs = await readFile("chrome-extension/boss-lead-collector/popup.js", "utf8");
+  const collectorCode = await readFile("chrome-extension/boss-lead-collector/collector.js", "utf8");
+  const backgroundCode = await readFile("chrome-extension/boss-lead-collector/background.js", "utf8");
+  const riskbirdContentCode = await readFile("chrome-extension/boss-lead-collector/riskbird-content.js", "utf8");
+
+  assert.ok(manifest.permissions.includes("storage"));
+  assert.ok(manifest.permissions.includes("tabs"));
+  assert.ok(manifest.host_permissions.includes("https://*.riskbird.com/*"));
+  assert.equal(manifest.background.service_worker, "background.js");
+  assert.deepEqual(manifest.content_scripts[0].js, [
+    "vendor/xlsx.full.min.js",
+    "riskbird-rules.js",
+    "riskbird-content.js",
+  ]);
+
+  assert.match(popupHtml, /id="run-auto"/);
+  assert.match(popupHtml, /riskbird-rules\.js/);
+  assert.match(popupJs, /autoRiskbird:\s*true/);
+  assert.match(popupJs, /stopRiskbirdWorkflow/);
+  assert.match(popupJs, /downloadRiskbirdRows/);
+  assert.match(collectorCode, /boss-auto-riskbird-start/);
+  assert.match(backgroundCode, /riskbirdEnricher/);
+  assert.match(backgroundCode, /chrome\.tabs\.create/);
+  assert.match(riskbirdContentCode, /__bossRiskbirdAutoInstalled/);
+  assert.match(riskbirdContentCode, /XLSX\.utils\.aoa_to_sheet/);
+});
+
 test("scoreCompanyMatch rejects unrelated RiskBird detail pages", async () => {
   const { scoreCompanyMatch } = await loadRules();
 

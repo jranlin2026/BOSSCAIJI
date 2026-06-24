@@ -66,10 +66,12 @@
   <body>
     <h1>BOSS 线索采集</h1>
     <p>打开 BOSS 搜索结果页后点击开始。插件会滚动当前页面，采集公司名、岗位名和招聘证据，并下载 XLSX。</p>
-    <button id="run">开始采集</button>
+    <button id="run-auto">采集并自动风鸟补全</button>
+    <button id="run" class="secondary">只采集 BOSS XLSX</button>
     <button id="stop" class="danger">停止并导出</button>
     <div id="status"></div>
     <script src="vendor/xlsx.full.min.js"></script>
+    <script src="riskbird-rules.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

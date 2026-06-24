@@ -2,14 +2,26 @@
   "manifest_version": 3,
   "name": "BOSS Lead Collector",
   "version": "0.1.0",
-  "description": "Collect visible BOSS job cards into a CSV lead table.",
+  "description": "Collect visible BOSS job cards and optionally enrich them on RiskBird.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "BOSS Lead Collector"
   },
-  "permissions": ["activeTab", "scripting"],
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
     "https://*.zhipin.com/*",
-    "https://*.bosszhipin.com/*"
+    "https://*.bosszhipin.com/*",
+    "https://riskbird.com/*",
+    "https://*.riskbird.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://riskbird.com/*", "https://*.riskbird.com/*"],
+      "js": ["vendor/xlsx.full.min.js", "riskbird-rules.js", "riskbird-content.js"],
+      "run_at": "document_idle"
+    }
   ]
 }
