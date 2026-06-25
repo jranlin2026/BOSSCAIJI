@@ -1,10 +1,30 @@
 (() => {
   const CONFIG = {
-    maxScrolls: 35,
+    maxScrolls: 180,
     delayMs: 1100,
+    emptyWaitMs: 20000,
+    minStableRounds: 8,
     minEvidenceLength: 20,
   };
-  const options = window.__bossLeadCollectorOptions || {};
+  const urlOptions = window.BossCollectorRules?.bossAutoOptionsFromUrl(location.href) || { auto: false };
+  const options = { ...urlOptions, ...(window.__bossLeadCollectorOptions || {}) };
+  const shouldStart = Boolean(options.manualStart || options.auto);
+
+  if (!shouldStart) {
+    window.__bossLeadCollector = {
+      isRunning: false,
+      showStatus: () => {},
+      collectOnce: () => {},
+      downloadCsv: () => {},
+      stopAndDownload: () => {},
+    };
+    return;
+  }
+
+  if (window.BossCollectorRules?.shouldNavigateForAuto(location.href, options)) {
+    location.href = window.BossCollectorRules.buildSearchUrlFromAutoOptions(location.href, options);
+    return;
+  }
 
   if (window.__bossLeadCollector?.isRunning) {
     window.__bossLeadCollector.showStatus("采集器已经在运行...");
@@ -45,7 +65,12 @@
     scrolls: 0,
   };
 
-  const text = (node) => (node?.innerText || node?.textContent || "").replace(/\s+/g, " ").trim();
+  const rawText = (node) => (node?.innerText || node?.textContent || "").replace(/\u00a0/g, " ").trim();
+  const text = (node) => rawText(node).replace(/\s+/g, " ").trim();
+
+  function uniqueNodes(nodes) {
+    return [...new Set(nodes.filter(Boolean))];
+  }
 
   function absUrl(href) {
     try {
@@ -57,6 +82,17 @@
 
   function matchesAny(value, terms) {
     return terms.some((term) => value.includes(term));
+  }
+
+  function getDocumentHeight() {
+    return Math.max(
+      document.body?.scrollHeight || 0,
+      document.documentElement?.scrollHeight || 0
+    );
+  }
+
+  function isNearBottom(height = getDocumentHeight()) {
+    return window.scrollY + window.innerHeight >= height - Math.max(80, window.innerHeight * 0.15);
   }
 
   function createStatusBox() {
@@ -84,7 +120,7 @@
     statusBox.textContent = message;
   }
 
-  function pickCompany(card) {
+  function pickCompany(card, jobName) {
     const selectors = [
       ".company-name",
       ".company-info .name",
@@ -96,11 +132,17 @@
 
     for (const selector of selectors) {
       const value = text(card.querySelector(selector));
-      if (value && !/^\d/.test(value)) return value;
+      if (value && !/^\d/.test(value) && (!window.BossCollectorRules || window.BossCollectorRules.isLikelyCompany(value, jobName))) {
+        return value;
+      }
+    }
+
+    if (window.BossCollectorRules) {
+      return window.BossCollectorRules.pickCompanyFromLines(window.BossCollectorRules.normalizeLines(rawText(card)), jobName);
     }
 
     const lines = text(card).split(" ").filter(Boolean);
-    return lines.find((line) => matchesAny(line, companyTerms)) || "";
+    return lines.find((line) => line !== jobName && matchesAny(line, companyTerms)) || "";
   }
 
   function pickJob(card) {
@@ -127,19 +169,33 @@
     return absUrl(link?.getAttribute("href") || "");
   }
 
-  function collectOnce() {
-    const cards = [
-      ...document.querySelectorAll(
-        ".job-card-wrapper, .job-list-box li, li.job-card, [class*=job-card], [class*=jobCard]"
-      ),
+  function findCards() {
+    const containerSelectors = [
+      ".job-card-wrapper",
+      ".job-card-box",
+      ".job-list-box li",
+      "li.job-card",
+      "[class*=job-card]",
+      "[class*=jobCard]",
     ];
+    const containers = containerSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]);
+    const cardsFromLinks = [...document.querySelectorAll("a[href*='/job_detail/']")]
+      .map((link) => link.closest(".job-card-wrapper, .job-card-box, li.job-card, li, [class*=job-card], [class*=jobCard]"));
+
+    return uniqueNodes([...containers, ...cardsFromLinks])
+      .filter((card) => text(card).length >= CONFIG.minEvidenceLength);
+  }
+
+  function collectOnce() {
+    const cards = findCards();
+    let added = 0;
 
     for (const card of cards) {
       const allText = text(card);
       if (allText.length < CONFIG.minEvidenceLength) continue;
 
-      const companyName = pickCompany(card);
       const jobName = pickJob(card);
+      const companyName = pickCompany(card, jobName);
       const jobUrl = pickHref(card);
       if (!companyName || !jobName) continue;
 
@@ -153,10 +209,12 @@
           evidence: allText.slice(0, 300),
           collectedAt: new Date().toISOString(),
         });
+        added += 1;
       }
     }
 
-    showStatus(`BOSS 采集中：${state.seen.size} 条，滚动 ${state.scrolls}/${CONFIG.maxScrolls}`);
+    showStatus(`BOSS \u91c7\u96c6\u4e2d\uff1a${state.seen.size} \u6761\uff0c\u672c\u8f6e\u8bc6\u522b ${cards.length} \u5f20\u5361\u7247\uff0c\u65b0\u589e ${added} \u6761\uff0c\u6eda\u52a8 ${state.scrolls}/${CONFIG.maxScrolls}`);
+    return { added, cardCount: cards.length, total: state.seen.size };
   }
 
   function csvEscape(value) {
@@ -232,8 +290,12 @@
 
   async function downloadCsv() {
     if (state.hasDownloaded) return;
-    state.hasDownloaded = true;
     const rows = [...state.seen.values()];
+    if (!rows.length) {
+      showStatus("\u672a\u91c7\u96c6\u5230 BOSS \u7ebf\u7d22\uff1a\u53ef\u80fd\u672a\u767b\u5f55\u3001\u641c\u7d22\u9875\u65e0\u5c97\u4f4d\uff0c\u6216 BOSS \u9875\u9762\u7ed3\u6784\u5df2\u53d8\u66f4\u3002\u672a\u5bfc\u51fa\u7a7a\u8868\u3002");
+      return;
+    }
+    state.hasDownloaded = true;
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     if (globalThis.XLSX?.utils?.aoa_to_sheet) {
       downloadXlsx(rows, timestamp);
@@ -255,10 +317,39 @@
   async function run() {
     window.__bossLeadCollector = { ...state, showStatus, collectOnce, downloadCsv, stopAndDownload };
 
-    for (state.scrolls = 0; state.scrolls < CONFIG.maxScrolls; state.scrolls += 1) {
-      if (state.stopRequested) break;
-      collectOnce();
-      window.scrollBy(0, Math.max(650, window.innerHeight * 0.9));
+    const waitStartedAt = Date.now();
+    let lastTotal = 0;
+    let lastHeight = 0;
+    let stableRounds = 0;
+    for (state.scrolls = 0; ; state.scrolls += 1) {
+      const result = collectOnce();
+      const height = getDocumentHeight();
+      const atBottom = isNearBottom(height);
+      const changed = result.added > 0 || result.total !== lastTotal || height !== lastHeight;
+      stableRounds = changed ? 0 : stableRounds + 1;
+      lastTotal = result.total;
+      lastHeight = height;
+
+      if (!result.cardCount && Date.now() - waitStartedAt < CONFIG.emptyWaitMs) {
+        showStatus(`\u6b63\u5728\u7b49\u5f85 BOSS \u804c\u4f4d\u5217\u8868\u52a0\u8f7d...\nURL: ${location.href}`);
+        await new Promise((resolve) => setTimeout(resolve, CONFIG.delayMs));
+        state.scrolls -= 1;
+        continue;
+      }
+
+      const shouldContinue = window.BossCollectorRules?.shouldContinueCollecting?.({
+        scrolls: state.scrolls,
+        maxScrolls: CONFIG.maxScrolls,
+        stableRounds,
+        minStableRounds: CONFIG.minStableRounds,
+        atBottom,
+        stopRequested: state.stopRequested,
+      }) ?? (state.scrolls < CONFIG.maxScrolls && !state.stopRequested);
+
+      if (!shouldContinue) break;
+
+      showStatus(`BOSS \u91c7\u96c6\u4e2d\uff1a${state.seen.size} \u6761\uff0c\u6eda\u52a8 ${state.scrolls}/${CONFIG.maxScrolls}\uff0c\u5230\u5e95\uff1a${atBottom ? "\u662f" : "\u5426"}\uff0c\u7a33\u5b9a ${stableRounds}/${CONFIG.minStableRounds}`);
+      window.scrollBy(0, Math.max(900, window.innerHeight * 1.15));
       await new Promise((resolve) => setTimeout(resolve, CONFIG.delayMs));
     }
 

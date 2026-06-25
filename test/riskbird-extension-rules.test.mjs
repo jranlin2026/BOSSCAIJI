@@ -10,6 +10,13 @@ async function loadRules() {
   return globalThis.RiskbirdRules;
 }
 
+async function loadBossCollectorRules() {
+  const code = await readFile("chrome-extension/boss-lead-collector/collector-rules.js", "utf8");
+  delete globalThis.BossCollectorRules;
+  vm.runInThisContext(code);
+  return globalThis.BossCollectorRules;
+}
+
 test("parseCsv reads BOSS exported rows with quoted commas", async () => {
   const { parseCsv } = await loadRules();
   const rows = parseCsv(
@@ -60,6 +67,33 @@ test("mergeResult preserves BOSS evidence and appends riskbird fields", async ()
   assert.equal(merged.riskbirdEmails, "sales@example.com");
   assert.equal(merged.riskbirdMobileNumbers, "13900000000");
   assert.equal(merged.riskbirdSourceUrl, "https://www.riskbird.com/ent/测试科技有限公司");
+});
+
+test("mergeStoppedResults preserves unprocessed BOSS rows when RiskBird is stopped", async () => {
+  const { mergeResult, mergeStoppedResults } = await loadRules();
+  const bossRows = [
+    { companyName: "A公司", jobName: "AI销售" },
+    { companyName: "B公司", jobName: "SaaS销售" },
+    { companyName: "C公司", jobName: "渠道销售" },
+  ];
+  const completed = [
+    mergeResult(bossRows[0], {
+      matchedCompanyName: "A公司",
+      companyPhones: ["400-111-2222"],
+      status: "matched",
+    }),
+  ];
+
+  const rows = mergeStoppedResults(bossRows, completed);
+
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].companyName, "A公司");
+  assert.equal(rows[0].riskbirdStatus, "matched");
+  assert.equal(rows[1].companyName, "B公司");
+  assert.equal(rows[1].jobName, "SaaS销售");
+  assert.equal(rows[1].riskbirdStatus, "stopped_unprocessed");
+  assert.equal(rows[2].companyName, "C公司");
+  assert.equal(rows[2].riskbirdStatus, "stopped_unprocessed");
 });
 
 test("toCsv quotes merged rows", async () => {
@@ -120,7 +154,7 @@ test("boss collector exports xlsx when the XLSX library is available", async () 
   const collectorCode = await readFile("chrome-extension/boss-lead-collector/collector.js", "utf8");
 
   assert.match(popupHtml, /vendor\/xlsx\.full\.min\.js/);
-  assert.match(popupJs, /files:\s*\["vendor\/xlsx\.full\.min\.js",\s*"collector\.js"\]/);
+  assert.match(popupJs, /files:\s*\["vendor\/xlsx\.full\.min\.js",\s*"collector-rules\.js",\s*"collector\.js"\]/);
   assert.match(collectorCode, /XLSX\.utils\.aoa_to_sheet/);
   assert.match(collectorCode, /\.xlsx`/);
 });
@@ -131,6 +165,7 @@ test("boss extension declares an automatic RiskBird workflow", async () => {
   const popupJs = await readFile("chrome-extension/boss-lead-collector/popup.js", "utf8");
   const collectorCode = await readFile("chrome-extension/boss-lead-collector/collector.js", "utf8");
   const backgroundCode = await readFile("chrome-extension/boss-lead-collector/background.js", "utf8");
+  const riskbirdRulesCode = await readFile("chrome-extension/boss-lead-collector/riskbird-rules.js", "utf8");
   const riskbirdContentCode = await readFile("chrome-extension/boss-lead-collector/riskbird-content.js", "utf8");
 
   assert.ok(manifest.permissions.includes("storage"));
@@ -142,17 +177,160 @@ test("boss extension declares an automatic RiskBird workflow", async () => {
     "riskbird-rules.js",
     "riskbird-content.js",
   ]);
+  assert.deepEqual(manifest.content_scripts[1].js, [
+    "vendor/xlsx.full.min.js",
+    "collector-rules.js",
+    "collector.js",
+  ]);
 
   assert.match(popupHtml, /id="run-auto"/);
   assert.match(popupHtml, /riskbird-rules\.js/);
   assert.match(popupJs, /autoRiskbird:\s*true/);
   assert.match(popupJs, /stopRiskbirdWorkflow/);
+  assert.match(popupJs, /mergeStoppedResults\(job\.rows/);
   assert.match(popupJs, /downloadRiskbirdRows/);
   assert.match(collectorCode, /boss-auto-riskbird-start/);
   assert.match(backgroundCode, /riskbirdEnricher/);
   assert.match(backgroundCode, /chrome\.tabs\.create/);
+  assert.match(riskbirdRulesCode, /mergeStoppedResults/);
   assert.match(riskbirdContentCode, /__bossRiskbirdAutoInstalled/);
   assert.match(riskbirdContentCode, /XLSX\.utils\.aoa_to_sheet/);
+});
+
+test("boss collector picks company names from BOSS cards instead of job titles", async () => {
+  const { isLikelyCompany, pickCompanyFromLines } = await loadBossCollectorRules();
+
+  assert.equal(isLikelyCompany("3-5年", "AI数字人 销售"), false);
+  assert.equal(isLikelyCompany("5-10年", "销售经理"), false);
+
+  assert.equal(
+    pickCompanyFromLines(
+      ["AI蓝图赛道·高提成销售+无责", "9-14K", "经验不限", "学历不限", "成都属华盛世数字科技", "成都·武侯区·中和"],
+      "AI蓝图赛道·高提成销售+无责"
+    ),
+    "成都属华盛世数字科技"
+  );
+  assert.equal(
+    pickCompanyFromLines(
+      ["ai人工智能项目推广 月入过万 可全职可居家", "6-11K", "1-3年", "高中", "数智引擎", "成都·成华区·建设路"],
+      "ai人工智能项目推广 月入过万 可全职可居家"
+    ),
+    "数智引擎"
+  );
+  assert.equal(
+    pickCompanyFromLines(
+      ["ai销售 面试就上班 入职1.5w起", "20-35K", "经验不限", "学历不限", "成都乐薪", "成都·成华区·万象城"],
+      "ai销售 面试就上班 入职1.5w起"
+    ),
+    "成都乐薪"
+  );
+  assert.equal(
+    pickCompanyFromLines(
+      ["人工智能销售岗位/接受应届生", "6-9", "K", "经验不限", "学历不限", "杭州合鑫元商务咨询", "杭州"],
+      "人工智能销售岗位/接受应届生"
+    ),
+    "杭州合鑫元商务咨询"
+  );
+  assert.equal(
+    pickCompanyFromLines(
+      ["AI销售经理", "10-15", "K", "3-5年", "学历不限", "杭州成美信息技术服务", "杭州"],
+      "AI销售经理"
+    ),
+    "杭州成美信息技术服务"
+  );
+  assert.equal(
+    pickCompanyFromLines(
+      ["人工智能软件销售（已接入 Deepseek）", "8-13K", "1-3年", "大专", "汉数科技", "杭州·滨江区·长河"],
+      "人工智能软件销售（已接入 Deepseek）"
+    ),
+    "汉数科技"
+  );
+  assert.equal(
+    pickCompanyFromLines(
+      ["AI数字人 销售", "10-15K", "3-5年", "大专", "杭州天擎来客科技", "杭州·临平区·临平"],
+      "AI数字人 销售"
+    ),
+    "杭州天擎来客科技"
+  );
+  assert.equal(
+    pickCompanyFromLines(
+      ["销售经理", "20-30K", "5-10年", "大专", "铂然天使", "杭州·临平区·东湖"],
+      "销售经理"
+    ),
+    "铂然天使"
+  );
+});
+
+test("boss collector can start automatically from boss_auto URLs", async () => {
+  const {
+    bossAutoOptionsFromUrl,
+    buildSearchUrlFromAutoOptions,
+    shouldNavigateForAuto,
+  } = await loadBossCollectorRules();
+
+  const options = bossAutoOptionsFromUrl("https://www.zhipin.com/chengdu/?boss_auto=1&query=AI%E9%94%80%E5%94%AE");
+  assert.deepEqual(options, {
+    auto: true,
+    autoRiskbird: true,
+    query: "AI销售",
+    city: "101270100",
+  });
+
+  const target = buildSearchUrlFromAutoOptions("https://www.zhipin.com/chengdu/?boss_auto=1&query=AI%E9%94%80%E5%94%AE", options);
+  assert.equal(target, "https://www.zhipin.com/web/geek/jobs?query=AI%E9%94%80%E5%94%AE&city=101270100&boss_auto=1");
+  assert.equal(shouldNavigateForAuto("https://www.zhipin.com/chengdu/?boss_auto=1&query=AI%E9%94%80%E5%94%AE", options), true);
+  assert.equal(shouldNavigateForAuto(target, options), false);
+});
+
+test("boss collector keeps scrolling until the page bottom is stable", async () => {
+  const { shouldContinueCollecting } = await loadBossCollectorRules();
+
+  assert.equal(shouldContinueCollecting({
+    scrolls: 35,
+    maxScrolls: 180,
+    atBottom: false,
+    stableRounds: 12,
+    minStableRounds: 8,
+    stopRequested: false,
+  }), true);
+  assert.equal(shouldContinueCollecting({
+    scrolls: 50,
+    maxScrolls: 180,
+    atBottom: true,
+    stableRounds: 7,
+    minStableRounds: 8,
+    stopRequested: false,
+  }), true);
+  assert.equal(shouldContinueCollecting({
+    scrolls: 51,
+    maxScrolls: 180,
+    atBottom: true,
+    stableRounds: 8,
+    minStableRounds: 8,
+    stopRequested: false,
+  }), false);
+  assert.equal(shouldContinueCollecting({
+    scrolls: 180,
+    maxScrolls: 180,
+    atBottom: false,
+    stableRounds: 0,
+    minStableRounds: 8,
+    stopRequested: false,
+  }), false);
+});
+
+test("boss collector waits for cards and does not export an empty workbook", async () => {
+  const collectorCode = await readFile("chrome-extension/boss-lead-collector/collector.js", "utf8");
+
+  assert.match(collectorCode, /function findCards\(\)/);
+  assert.match(collectorCode, /a\[href\*='\/job_detail\/'\]/);
+  assert.match(collectorCode, /normalizeLines\(rawText\(card\)\)/);
+  assert.match(collectorCode, /emptyWaitMs/);
+  assert.match(collectorCode, /maxScrolls:\s*180/);
+  assert.match(collectorCode, /minStableRounds:\s*8/);
+  assert.match(collectorCode, /shouldContinueCollecting/);
+  assert.match(collectorCode, /if \(!rows\.length\)/);
+  assert.match(collectorCode, /\\u672a\\u5bfc\\u51fa\\u7a7a\\u8868/);
 });
 
 test("scoreCompanyMatch rejects unrelated RiskBird detail pages", async () => {

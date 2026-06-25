@@ -30,7 +30,7 @@ async function injectCollector(tabId, options = {}) {
   });
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["vendor/xlsx.full.min.js", "collector.js"],
+    files: ["vendor/xlsx.full.min.js", "collector-rules.js", "collector.js"],
   });
 }
 
@@ -55,8 +55,8 @@ async function startCollector(options = {}) {
   }
 }
 
-runButton.addEventListener("click", () => startCollector({ autoRiskbird: false }));
-runAutoButton.addEventListener("click", () => startCollector({ autoRiskbird: true }));
+runButton.addEventListener("click", () => startCollector({ manualStart: true, autoRiskbird: false }));
+runAutoButton.addEventListener("click", () => startCollector({ manualStart: true, autoRiskbird: true }));
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -96,10 +96,11 @@ async function stopRiskbirdWorkflow() {
   const job = state.riskbirdEnricher;
   if (!job) return false;
 
-  const results = job.results || [];
+  const results = RiskbirdRules.mergeStoppedResults(job.rows || [], job.results || []);
   await chrome.storage.local.set({
     riskbirdEnricher: {
       ...job,
+      results,
       status: "stopped",
       stoppedAt: new Date().toISOString(),
     },
@@ -107,9 +108,9 @@ async function stopRiskbirdWorkflow() {
 
   if (results.length) {
     downloadRiskbirdRows(results);
-    setStatus(`\u5df2\u505c\u6b62\u98ce\u9e1f\u8865\u5168\uff0c\u5e76\u5bfc\u51fa ${results.length} \u6761\u5df2\u5b8c\u6210\u7ed3\u679c\u3002`);
+    setStatus(`\u5df2\u505c\u6b62\u98ce\u9e1f\u8865\u5168\uff0c\u5e76\u5bfc\u51fa ${results.length} \u6761\u7ed3\u679c\uff08\u5305\u542b\u672a\u8865\u5168\u7684 BOSS \u539f\u59cb\u7ebf\u7d22\uff09\u3002`);
   } else {
-    setStatus("\u5df2\u505c\u6b62\u98ce\u9e1f\u8865\u5168\uff0c\u6682\u65e0\u5df2\u5b8c\u6210\u7ed3\u679c\u53ef\u5bfc\u51fa\u3002");
+    setStatus("\u5df2\u505c\u6b62\u98ce\u9e1f\u8865\u5168\uff0c\u6682\u65e0 BOSS \u539f\u59cb\u7ebf\u7d22\u53ef\u5bfc\u51fa\u3002");
   }
   return true;
 }

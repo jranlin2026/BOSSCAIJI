@@ -174,6 +174,15 @@
     };
   }
 
+  function mergeStoppedResults(bossRows, completedRows) {
+    const normalizedRows = normalizeRows(bossRows || []);
+    const completed = completedRows || [];
+    return normalizedRows.map((row, index) => completed[index] || mergeResult(row, {
+      status: "stopped_unprocessed",
+      note: "Stopped before RiskBird enrichment",
+    }));
+  }
+
   function splitMobileNumbers(value) {
     return unique(String(value || "")
       .split(/[;\uFF1B\u3001\s]+/)
@@ -257,6 +266,7 @@
     maskMobileNumbers,
     redactMobileNumbers,
     mergeResult,
+    mergeStoppedResults,
     splitMobileNumbers,
     splitMaskedMobiles,
     cleanSharedMobileMasks,

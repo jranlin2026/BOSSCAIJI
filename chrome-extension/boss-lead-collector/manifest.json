@@ -22,6 +22,11 @@
       "matches": ["https://riskbird.com/*", "https://*.riskbird.com/*"],
       "js": ["vendor/xlsx.full.min.js", "riskbird-rules.js", "riskbird-content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.zhipin.com/*", "https://*.bosszhipin.com/*"],
+      "js": ["vendor/xlsx.full.min.js", "collector-rules.js", "collector.js"],
+      "run_at": "document_idle"
     }
   ]
 }
