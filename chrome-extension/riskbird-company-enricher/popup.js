@@ -130,17 +130,17 @@ stopButton.addEventListener("click", async () => {
     stopButton.disabled = false;
     return;
   }
-  const results = job.results || [];
+  const results = RiskbirdRules.mergeStoppedResults(job.rows || [], job.results || []);
   await chrome.storage.local.set({
     riskbirdEnricher: { ...job, results, status: "stopped", stoppedAt: new Date().toISOString() },
   });
   if (!results.length) {
-    setStatus("Stopped. No enriched rows have been collected yet.");
+    setStatus("Stopped. No BOSS rows to export.");
     stopButton.disabled = false;
     return;
   }
   await downloadRows(results);
-  setStatus(`Stopped and exported ${results.length} rows.`);
+  setStatus(`Stopped and exported ${results.length} rows, including unprocessed BOSS rows.`);
   setTimeout(() => window.close(), 1000);
 });
 

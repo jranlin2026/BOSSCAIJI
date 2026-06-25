@@ -3,7 +3,7 @@
   window.__bossRiskbirdAutoInstalled = true;
 
   const WAIT_MS = 1600;
-  const NO_MATCH_TIMEOUT_MS = 10000;
+  const NO_MATCH_TIMEOUT_MS = 6000;
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,6 +15,31 @@
 
   function storageSet(job) {
     return chrome.storage.local.set({ riskbirdEnricher: job });
+  }
+
+  async function getLatestRunningJob(job) {
+    const latestJob = await storageGet();
+    if (
+      latestJob?.status === "running" &&
+      (latestJob.currentIndex || 0) === (job.currentIndex || 0) &&
+      (!job.startedAt || latestJob.startedAt === job.startedAt)
+    ) {
+      return latestJob;
+    }
+    return null;
+  }
+
+  async function isJobStillRunning(job) {
+    const latestJob = await getLatestRunningJob(job);
+    return Boolean(latestJob);
+  }
+
+  async function markSearchStarted(job, searchStartedAt) {
+    const latestJob = await getLatestRunningJob(job);
+    if (!latestJob) return null;
+    const nextJob = { ...latestJob, searchStartedAt };
+    await storageSet(nextJob);
+    return nextJob;
   }
 
   function text(node) {
@@ -49,8 +74,16 @@
     return row.companyName || row["公司名"] || row["公司名称"] || row["企业名称"] || "";
   }
 
+  function normalizeSearchKeyword(value) {
+    return String(value || "")
+      .replace(/["'“”‘’]/g, "")
+      .replace(/\s+/g, "")
+      .trim();
+  }
+
   function searchUrl(companyName) {
-    return `https://www.riskbird.com/search/company?keyword=${encodeURIComponent(companyName)}&timestamp=${Date.now()}`;
+    const keyword = normalizeSearchKeyword(companyName);
+    return `https://www.riskbird.com/search/company?keyword=${encodeURIComponent(keyword)}&timestamp=${Date.now()}`;
   }
 
   function isSearchPage() {
@@ -61,20 +94,59 @@
     return location.pathname.startsWith("/ent/");
   }
 
-  function findBestCompanyLink(companyName) {
+  function isCurrentSearchForCompany(companyName) {
+    if (!isSearchPage()) return false;
+    const params = new URLSearchParams(location.search);
+    const keyword = params.get("keyword") || "";
+    return normalizeSearchKeyword(keyword) === normalizeSearchKeyword(companyName);
+  }
+
+  function getSearchResultContainer(link) {
+    let node = link;
+    for (let depth = 0; node && node !== document.body && depth < 8; depth += 1) {
+      const value = text(node);
+      if (
+        value.length > 60 &&
+        /\u7535\u8bdd|\u90ae\u7bb1|\u5b98\u7f51|\u901a\u4fe1\u5730\u5740|\u6cd5\u5b9a\u4ee3\u8868\u4eba|\u6ce8\u518c\u8d44\u672c|\u7edf\u4e00\u793e\u4f1a\u4fe1\u7528\u4ee3\u7801/i.test(value)
+      ) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return link.closest("tr, li, section, article, div") || link;
+  }
+
+  function findBestCompanySearchResult(companyName) {
     const links = [...document.querySelectorAll("a[href*='/ent/']")];
     const candidates = links
       .map((link) => ({
         link,
         label: text(link),
         href: link.href,
+        container: getSearchResultContainer(link),
       }))
       .filter((item) => item.label && item.href);
 
     candidates.sort((a, b) =>
       RiskbirdRules.scoreCompanyMatch(b.label, companyName) - RiskbirdRules.scoreCompanyMatch(a.label, companyName)
     );
-    return candidates.find((candidate) => RiskbirdRules.scoreCompanyMatch(candidate.label, companyName) > 0)?.link || null;
+    return candidates.find((candidate) => RiskbirdRules.scoreCompanyMatch(candidate.label, companyName) > 0) || null;
+  }
+
+  function buildSearchResult(row, searchResult, status = "matched_search") {
+    const resultText = text(searchResult?.container);
+    const contacts = RiskbirdRules.extractContacts(resultText);
+    return RiskbirdRules.mergeResult(row, {
+      matchedCompanyName: searchResult?.label || getCompanyName(row),
+      companyPhones: contacts.companyPhones,
+      emails: contacts.emails,
+      website: contacts.website,
+      hasPublicMobile: contacts.hasPublicMobile,
+      mobileNumbers: contacts.mobileNumbers,
+      sourceUrl: location.href,
+      status,
+      note: "Extracted from RiskBird search result page; detail page not opened.",
+    });
   }
 
   function extractMatchedCompanyName(fallback) {
@@ -145,7 +217,9 @@
   }
 
   async function finish(job) {
-    const cleanedResults = RiskbirdRules.cleanSharedMobileNumbers(job.results || []);
+    const latestJob = await getLatestRunningJob(job);
+    if (!latestJob) return;
+    const cleanedResults = RiskbirdRules.cleanSharedMobileNumbers(latestJob.results || []);
     let blob;
     let extension = "csv";
     if (globalThis.XLSX?.utils?.aoa_to_sheet && RiskbirdRules.OUTPUT_COLUMNS) {
@@ -173,15 +247,17 @@
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    await storageSet({ ...job, results: cleanedResults, status: "done", finishedAt: new Date().toISOString() });
-    showStatus(`风鸟补全完成：${cleanedResults.length}/${job.rows.length}，CSV 已下载`);
+    await storageSet({ ...latestJob, results: cleanedResults, status: "done", finishedAt: new Date().toISOString() });
+    showStatus(`风鸟补全完成：${cleanedResults.length}/${latestJob.rows.length}，CSV 已下载`);
   }
 
   async function advance(job, result) {
+    const latestJob = await getLatestRunningJob(job);
+    if (!latestJob) return;
     const nextJob = {
-      ...job,
-      results: [...(job.results || []), result],
-      currentIndex: (job.currentIndex || 0) + 1,
+      ...latestJob,
+      results: [...(latestJob.results || []), result],
+      currentIndex: (latestJob.currentIndex || 0) + 1,
       updatedAt: new Date().toISOString(),
       searchStartedAt: null,
     };
@@ -210,8 +286,12 @@
 
     if (isDetailPage()) {
       await sleep(WAIT_MS);
+      if (!await isJobStillRunning(job)) return;
       const matchedName = extractMatchedCompanyName(companyName);
       if (RiskbirdRules.scoreCompanyMatch(matchedName, companyName) <= 0) {
+        if (!await isJobStillRunning(job)) {
+          return;
+        }
         location.href = searchUrl(companyName);
         return;
       }
@@ -219,25 +299,29 @@
       return;
     }
 
-    if (!isSearchPage() || !decodeURIComponent(location.search).includes(companyName)) {
+    if (!isCurrentSearchForCompany(companyName)) {
+      if (!await isJobStillRunning(job)) {
+        return;
+      }
       location.href = searchUrl(companyName);
       return;
     }
 
     const searchStartedAt = job.searchStartedAt || Date.now();
-    if (!job.searchStartedAt) await storageSet({ ...job, searchStartedAt });
+    if (!job.searchStartedAt && !await markSearchStarted(job, searchStartedAt)) return;
     await sleep(WAIT_MS);
+    if (!await isJobStillRunning(job)) return;
 
-    const link = findBestCompanyLink(companyName);
-    if (link) {
-      link.click();
+    const searchResult = findBestCompanySearchResult(companyName);
+    if (searchResult) {
+      await advance(job, buildSearchResult(row, searchResult));
       return;
     }
 
     if (Date.now() - searchStartedAt > NO_MATCH_TIMEOUT_MS) {
       await advance(job, RiskbirdRules.mergeResult(row, {
         status: "no_match",
-        note: "No matching /ent/ link found on RiskBird search page",
+        note: "No matching company result found on RiskBird search page",
         sourceUrl: location.href,
       }));
       return;

@@ -194,7 +194,45 @@ test("boss extension declares an automatic RiskBird workflow", async () => {
   assert.match(backgroundCode, /chrome\.tabs\.create/);
   assert.match(riskbirdRulesCode, /mergeStoppedResults/);
   assert.match(riskbirdContentCode, /__bossRiskbirdAutoInstalled/);
+  assert.match(riskbirdContentCode, /function normalizeSearchKeyword/);
+  assert.match(riskbirdContentCode, /function isCurrentSearchForCompany/);
+  assert.match(riskbirdContentCode, /\.replace\(\/\\s\+\/g,\s*""\)/);
+  assert.match(riskbirdContentCode, /new URLSearchParams\(location\.search\)/);
+  assert.match(riskbirdContentCode, /function findBestCompanySearchResult/);
+  assert.match(riskbirdContentCode, /function buildSearchResult/);
+  assert.match(riskbirdContentCode, /matched_search/);
+  assert.doesNotMatch(riskbirdContentCode, /openCompanyLinkInCurrentTab\(link\)/);
+  assert.doesNotMatch(riskbirdContentCode, /if \(link\) \{\s*link\.click\(\);/);
   assert.match(riskbirdContentCode, /XLSX\.utils\.aoa_to_sheet/);
+});
+
+test("standalone RiskBird enricher uses search results without opening detail pages", async () => {
+  const contentCode = await readFile("chrome-extension/riskbird-company-enricher/content.js", "utf8");
+  const popupCode = await readFile("chrome-extension/riskbird-company-enricher/popup.js", "utf8");
+
+  assert.match(contentCode, /function normalizeSearchKeyword/);
+  assert.match(contentCode, /function isCurrentSearchForCompany/);
+  assert.match(contentCode, /function findBestCompanySearchResult/);
+  assert.match(contentCode, /function buildSearchResult/);
+  assert.match(contentCode, /matched_search/);
+  assert.match(contentCode, /No matching company result found on RiskBird search page/);
+  assert.doesNotMatch(contentCode, /if \(link\) \{\s*link\.click\(\);/);
+  assert.match(popupCode, /mergeStoppedResults\(job\.rows/);
+});
+
+test("RiskBird content scripts recheck stopped state before continuing async work", async () => {
+  const standaloneContentCode = await readFile("chrome-extension/riskbird-company-enricher/content.js", "utf8");
+  const integratedContentCode = await readFile("chrome-extension/boss-lead-collector/riskbird-content.js", "utf8");
+
+  for (const code of [standaloneContentCode, integratedContentCode]) {
+    assert.match(code, /async function isJobStillRunning\(job\)/);
+    assert.match(code, /const latestJob = await storageGet\(\)/);
+    assert.match(code, /latestJob\?\.status === "running"/);
+    assert.match(code, /if \(!await isJobStillRunning\(job\)\) return;/);
+    assert.match(code, /if \(!await isJobStillRunning\(job\)\) \{\s*return;\s*\}\s*location\.href = searchUrl\(companyName\)/);
+    assert.match(code, /async function markSearchStarted\(job, searchStartedAt\)/);
+    assert.doesNotMatch(code, /storageSet\(\{\s*...job,\s*searchStartedAt\s*\}\)/);
+  }
 });
 
 test("boss collector picks company names from BOSS cards instead of job titles", async () => {
