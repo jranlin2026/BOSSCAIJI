@@ -159,6 +159,47 @@ test("boss collector exports xlsx when the XLSX library is available", async () 
   assert.match(collectorCode, /\.xlsx`/);
 });
 
+test("exports use readable local timestamps in filenames", async () => {
+  const collectorCode = await readFile("chrome-extension/boss-lead-collector/collector.js", "utf8");
+  const bossPopupCode = await readFile("chrome-extension/boss-lead-collector/popup.js", "utf8");
+  const integratedRiskbirdCode = await readFile("chrome-extension/boss-lead-collector/riskbird-content.js", "utf8");
+  const standaloneRiskbirdCode = await readFile("chrome-extension/riskbird-company-enricher/content.js", "utf8");
+  const standalonePopupCode = await readFile("chrome-extension/riskbird-company-enricher/popup.js", "utf8");
+
+  for (const code of [collectorCode, bossPopupCode, integratedRiskbirdCode, standaloneRiskbirdCode, standalonePopupCode]) {
+    assert.match(code, /function formatTimestampForFilename/);
+    assert.match(code, /getFullYear\(\)/);
+    assert.match(code, /getHours\(\)/);
+  }
+
+  assert.doesNotMatch(collectorCode, /boss-leads-\$\{new Date\(\)\.toISOString/);
+  assert.doesNotMatch(bossPopupCode, /riskbird-enriched-\$\{new Date\(\)\.toISOString/);
+  assert.doesNotMatch(integratedRiskbirdCode, /riskbird-enriched-\$\{new Date\(\)\.toISOString/);
+  assert.doesNotMatch(standaloneRiskbirdCode, /riskbird-enriched-\$\{new Date\(\)\.toISOString/);
+  assert.doesNotMatch(standalonePopupCode, /riskbird-enriched-\$\{new Date\(\)\.toISOString/);
+});
+
+test("standalone RiskBird enricher exports XLSX when the XLSX library is available", async () => {
+  const manifest = JSON.parse(await readFile("chrome-extension/riskbird-company-enricher/manifest.json", "utf8"));
+  const popupHtml = await readFile("chrome-extension/riskbird-company-enricher/popup.html", "utf8");
+  const popupCode = await readFile("chrome-extension/riskbird-company-enricher/popup.js", "utf8");
+  const contentCode = await readFile("chrome-extension/riskbird-company-enricher/content.js", "utf8");
+
+  assert.match(popupHtml, /vendor\/xlsx\.full\.min\.js/);
+  assert.deepEqual(manifest.content_scripts[0].js, [
+    "vendor/xlsx.full.min.js",
+    "rules.js",
+    "content.js",
+  ]);
+  assert.match(popupCode, /files:\s*\["vendor\/xlsx\.full\.min\.js",\s*"rules\.js",\s*"content\.js"\]/);
+  assert.match(popupCode, /XLSX\.utils\.aoa_to_sheet/);
+  assert.match(popupCode, /extension = "xlsx"/);
+  assert.match(popupCode, /riskbird-enriched-\$\{formatTimestampForFilename\(\)\}\.\$\{extension\}/);
+  assert.match(contentCode, /XLSX\.utils\.aoa_to_sheet/);
+  assert.match(contentCode, /extension = "xlsx"/);
+  assert.match(contentCode, /riskbird-enriched-\$\{formatTimestampForFilename\(\)\}\.\$\{extension\}/);
+});
+
 test("boss extension declares an automatic RiskBird workflow", async () => {
   const manifest = JSON.parse(await readFile("chrome-extension/boss-lead-collector/manifest.json", "utf8"));
   const popupHtml = await readFile("chrome-extension/boss-lead-collector/popup.html", "utf8");

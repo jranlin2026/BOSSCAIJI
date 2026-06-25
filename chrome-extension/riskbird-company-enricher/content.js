@@ -46,6 +46,19 @@
     return (node?.innerText || node?.textContent || "").replace(/\s+/g, " ").trim();
   }
 
+  function formatTimestampForFilename(date = new Date()) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return [
+      date.getFullYear(),
+      pad(date.getMonth() + 1),
+      pad(date.getDate()),
+    ].join("-") + "-" + [
+      pad(date.getHours()),
+      pad(date.getMinutes()),
+      pad(date.getSeconds()),
+    ].join("-");
+  }
+
   function showStatus(message) {
     let box = document.getElementById("__riskbird_enricher_status");
     if (!box) {
@@ -220,18 +233,37 @@
     const latestJob = await getLatestRunningJob(job);
     if (!latestJob) return;
     const cleanedResults = RiskbirdRules.cleanSharedMobileNumbers(latestJob.results || []);
-    const csv = RiskbirdRules.toCsv(cleanedResults);
-    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+    let blob;
+    let extension = "csv";
+
+    if (globalThis.XLSX?.utils?.aoa_to_sheet && RiskbirdRules.OUTPUT_COLUMNS) {
+      const rows = [
+        RiskbirdRules.OUTPUT_COLUMNS.map((column) => column.label),
+        ...cleanedResults.map((row) => RiskbirdRules.OUTPUT_COLUMNS.map((column) => row[column.key] || "")),
+      ];
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "RiskBird补全");
+      const arrayBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+      blob = new Blob([arrayBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      extension = "xlsx";
+    } else {
+      const csv = RiskbirdRules.toCsv(cleanedResults);
+      blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+    }
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `riskbird-enriched-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.csv`;
+    link.download = `riskbird-enriched-${formatTimestampForFilename()}.${extension}`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
     await storageSet({ ...latestJob, results: cleanedResults, status: "done", finishedAt: new Date().toISOString() });
-    showStatus(`风鸟补全完成：${cleanedResults.length}/${latestJob.rows.length}，CSV 已下载`);
+    showStatus(`风鸟补全完成：${cleanedResults.length}/${latestJob.rows.length}，${extension.toUpperCase()} 已下载`);
   }
 
   async function advance(job, result) {

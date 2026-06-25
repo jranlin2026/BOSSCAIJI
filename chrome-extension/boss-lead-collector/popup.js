@@ -69,9 +69,22 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+function formatTimestampForFilename(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + "-" + [
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("-");
+}
+
 function downloadRiskbirdRows(rows) {
   const cleanedRows = RiskbirdRules.cleanSharedMobileNumbers(rows || []);
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const timestamp = formatTimestampForFilename();
   if (globalThis.XLSX?.utils?.aoa_to_sheet && RiskbirdRules.OUTPUT_COLUMNS) {
     const sheetRows = [
       RiskbirdRules.OUTPUT_COLUMNS.map((column) => column.label),

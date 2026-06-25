@@ -50,7 +50,7 @@ async function getActiveRiskbirdTab() {
 async function ensureContentScripts(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["rules.js", "content.js"],
+    files: ["vendor/xlsx.full.min.js", "rules.js", "content.js"],
   });
 }
 
@@ -59,13 +59,46 @@ async function sendToContent(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message);
 }
 
+function formatTimestampForFilename(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + "-" + [
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("-");
+}
+
 async function downloadRows(rows) {
-  const csv = RiskbirdRules.toCsv(RiskbirdRules.cleanSharedMobileNumbers(rows));
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const cleanedRows = RiskbirdRules.cleanSharedMobileNumbers(rows);
+  let blob;
+  let extension = "csv";
+
+  if (globalThis.XLSX?.utils?.aoa_to_sheet && RiskbirdRules.OUTPUT_COLUMNS) {
+    const sheetRows = [
+      RiskbirdRules.OUTPUT_COLUMNS.map((column) => column.label),
+      ...cleanedRows.map((row) => RiskbirdRules.OUTPUT_COLUMNS.map((column) => row[column.key] || "")),
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "RiskBird补全");
+    const arrayBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    blob = new Blob([arrayBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    extension = "xlsx";
+  } else {
+    const csv = RiskbirdRules.toCsv(cleanedRows);
+    blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  }
+
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `riskbird-enriched-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.csv`;
+  link.download = `riskbird-enriched-${formatTimestampForFilename()}.${extension}`;
   document.body.appendChild(link);
   link.click();
   link.remove();

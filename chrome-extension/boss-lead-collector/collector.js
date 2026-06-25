@@ -68,6 +68,19 @@
   const rawText = (node) => (node?.innerText || node?.textContent || "").replace(/\u00a0/g, " ").trim();
   const text = (node) => rawText(node).replace(/\s+/g, " ").trim();
 
+  function formatTimestampForFilename(date = new Date()) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return [
+      date.getFullYear(),
+      pad(date.getMonth() + 1),
+      pad(date.getDate()),
+    ].join("-") + "-" + [
+      pad(date.getHours()),
+      pad(date.getMinutes()),
+      pad(date.getSeconds()),
+    ].join("-");
+  }
+
   function uniqueNodes(nodes) {
     return [...new Set(nodes.filter(Boolean))];
   }
@@ -296,7 +309,7 @@
       return;
     }
     state.hasDownloaded = true;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const timestamp = formatTimestampForFilename();
     if (globalThis.XLSX?.utils?.aoa_to_sheet) {
       downloadXlsx(rows, timestamp);
       await maybeStartRiskbird(rows);
