@@ -3,6 +3,7 @@
   const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
   const COMPANY_PHONE_RE = /(?<!\d)(?:400-?\d{3}-?\d{4}|0\d{2,3}[- ]?\d{7,8})(?!\d)/g;
   const URL_RE = /https?:\/\/[^\s"'<>\uFF0C\u3002\uFF1B\u3001)\uFF09]+/gi;
+  const PRINCIPAL_RE = /(?:\u6CD5\u5B9A\u4EE3\u8868\u4EBA|\u6CD5\u4EBA\u4EE3\u8868|\u6CD5\u4EBA|\u8D1F\u8D23\u4EBA|\u7ECF\u8425\u8005)[\s:\uFF1A]*([^\s,\uFF0C;\uFF1B|\u3001]{2,20})/i;
 
   const OUTPUT_COLUMNS = [
     { key: "companyName", label: "\u516c\u53f8\u540d" },
@@ -12,6 +13,7 @@
     { key: "evidence", label: "BOSS\u62db\u8058\u8bc1\u636e" },
     { key: "collectedAt", label: "BOSS\u91c7\u96c6\u65f6\u95f4" },
     { key: "riskbirdMatchedCompanyName", label: "\u98ce\u9e1f\u5339\u914d\u516c\u53f8\u540d" },
+    { key: "riskbirdLegalRepresentative", label: "\u98ce\u9e1f\u4e3b\u4f53\u8d1f\u8d23\u4eba" },
     { key: "riskbirdCompanyPhones", label: "\u98ce\u9e1f\u4f01\u4e1a\u516c\u5f00\u7535\u8bdd" },
     { key: "riskbirdEmails", label: "\u98ce\u9e1f\u4f01\u4e1a\u90ae\u7bb1" },
     { key: "riskbirdWebsite", label: "\u98ce\u9e1f\u5b98\u7f51" },
@@ -116,6 +118,19 @@
     return urls.find((url) => !/riskbird\.com|zhipin\.com|bosszhipin\.com/i.test(url)) || "";
   }
 
+  function extractLegalRepresentative(text) {
+    return extractPrincipal(text);
+  }
+
+  function extractPrincipal(text) {
+    const rawText = String(text || "").replace(/\s+/g, " ").trim();
+    const match = rawText.match(PRINCIPAL_RE);
+    if (!match) return "";
+    return match[1]
+      .replace(/(?:\u6CE8\u518C\u8D44\u672C|\u6210\u7ACB\u65E5\u671F|\u7EDF\u4E00\u793E\u4F1A\u4FE1\u7528\u4EE3\u7801|\u7535\u8BDD|\u90AE\u7BB1|\u5B98\u7F51|\u901A\u4FE1\u5730\u5740|\u6CE8\u518C\u5730\u5740).*$/i, "")
+      .trim();
+  }
+
   function extractContacts(text) {
     const rawText = String(text || "");
     const withoutMobiles = rawText.replace(MOBILE_RE, " ");
@@ -127,6 +142,7 @@
       emails,
       companyPhones,
       website: extractWebsite(rawText),
+      legalRepresentative: extractPrincipal(rawText),
       hasPublicMobile: mobileNumbers.length > 0,
       mobileNumbers,
       mobileMasked: mobileNumbers,
@@ -163,6 +179,7 @@
     return {
       ...normalizeBossRow(bossRow || {}),
       riskbirdMatchedCompanyName: result.matchedCompanyName || "",
+      riskbirdLegalRepresentative: result.legalRepresentative || "",
       riskbirdCompanyPhones: (result.companyPhones || []).join("; "),
       riskbirdEmails: (result.emails || []).join("; "),
       riskbirdWebsite: result.website || "",
@@ -260,6 +277,8 @@
     normalizeRows,
     normalizeBossRow,
     extractContacts,
+    extractPrincipal,
+    extractLegalRepresentative,
     normalizeCompanyName,
     scoreCompanyMatch,
     extractMobileNumbers,

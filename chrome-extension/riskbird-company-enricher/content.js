@@ -46,6 +46,15 @@
     return (node?.innerText || node?.textContent || "").replace(/\s+/g, " ").trim();
   }
 
+  function cleanLegalRepresentativeValue(value) {
+    const cleaned = String(value || "")
+      .replace(/^(?:\u6CD5\u5B9A\u4EE3\u8868\u4EBA|\u6CD5\u4EBA\u4EE3\u8868|\u6CD5\u4EBA|\u8D1F\u8D23\u4EBA|\u7ECF\u8425\u8005)[\s:\uFF1A]*/i, "")
+      .replace(/(?:\u6CE8\u518C\u8D44\u672C|\u6210\u7ACB\u65E5\u671F|\u7EDF\u4E00\u793E\u4F1A\u4FE1\u7528\u4EE3\u7801|\u7535\u8BDD|\u90AE\u7BB1|\u5B98\u7F51|\u901A\u4FE1\u5730\u5740).*$/i, "")
+      .trim();
+    if (!cleaned || /^(?:\u6CD5\u5B9A\u4EE3\u8868\u4EBA|\u6CD5\u4EBA\u4EE3\u8868|\u6CD5\u4EBA|\u8D1F\u8D23\u4EBA|\u7ECF\u8425\u8005|\u66F4\u591A)$/.test(cleaned)) return "";
+    return cleaned.length <= 20 ? cleaned : "";
+  }
+
   function formatTimestampForFilename(date = new Date()) {
     const pad = (value) => String(value).padStart(2, "0");
     return [
@@ -120,13 +129,46 @@
       const value = text(node);
       if (
         value.length > 60 &&
-        /电话|邮箱|官网|通信地址|法定代表人|注册资本|统一社会信用代码/i.test(value)
+        /\u7535\u8BDD|\u90AE\u7BB1|\u5B98\u7F51|\u901A\u4FE1\u5730\u5740|\u6CD5\u5B9A\u4EE3\u8868\u4EBA|\u6CD5\u4EBA\u4EE3\u8868|\u6CD5\u4EBA|\u8D1F\u8D23\u4EBA|\u7ECF\u8425\u8005|\u6CE8\u518C\u8D44\u672C|\u7EDF\u4E00\u793E\u4F1A\u4FE1\u7528\u4EE3\u7801/i.test(value)
       ) {
         return node;
       }
       node = node.parentElement;
     }
     return link.closest("tr, li, section, article, div") || link;
+  }
+
+  function extractLegalRepresentativeFromNode(root) {
+    if (!root) return "";
+    const fromFullText = (RiskbirdRules.extractPrincipal || RiskbirdRules.extractLegalRepresentative)(text(root));
+    if (fromFullText) return fromFullText;
+
+    const labelRe = /\u6CD5\u5B9A\u4EE3\u8868\u4EBA|\u6CD5\u4EBA\u4EE3\u8868|\u6CD5\u4EBA|\u8D1F\u8D23\u4EBA|\u7ECF\u8425\u8005/i;
+    const nodes = [...root.querySelectorAll("a, span, p, div, td, li")];
+    for (const node of nodes) {
+      const nodeText = text(node);
+      if (!labelRe.test(nodeText)) continue;
+
+      const fromNodeText = (RiskbirdRules.extractPrincipal || RiskbirdRules.extractLegalRepresentative)(nodeText);
+      if (fromNodeText) return fromNodeText;
+
+      const parentText = text(node.parentElement);
+      const fromParentText = (RiskbirdRules.extractPrincipal || RiskbirdRules.extractLegalRepresentative)(parentText);
+      if (fromParentText) return fromParentText;
+
+      let sibling = node.nextElementSibling;
+      for (let i = 0; sibling && i < 4; i += 1) {
+        const siblingAnchor = [...sibling.querySelectorAll("a")]
+          .map((anchor) => cleanLegalRepresentativeValue(text(anchor)))
+          .find(Boolean);
+        if (siblingAnchor) return siblingAnchor;
+
+        const siblingText = cleanLegalRepresentativeValue(text(sibling));
+        if (siblingText) return siblingText;
+        sibling = sibling.nextElementSibling;
+      }
+    }
+    return "";
   }
 
   function findBestCompanySearchResult(companyName) {
@@ -149,11 +191,13 @@
   function buildSearchResult(row, searchResult, status = "matched_search") {
     const resultText = text(searchResult?.container);
     const contacts = RiskbirdRules.extractContacts(resultText);
+    const legalRepresentative = extractLegalRepresentativeFromNode(searchResult?.container) || contacts.legalRepresentative;
     return RiskbirdRules.mergeResult(row, {
       matchedCompanyName: searchResult?.label || getCompanyName(row),
       companyPhones: contacts.companyPhones,
       emails: contacts.emails,
       website: contacts.website,
+      legalRepresentative,
       hasPublicMobile: contacts.hasPublicMobile,
       mobileNumbers: contacts.mobileNumbers,
       sourceUrl: location.href,
@@ -180,6 +224,7 @@
       companyPhones: contacts.companyPhones,
       emails: contacts.emails,
       website: contacts.website,
+      legalRepresentative: contacts.legalRepresentative,
       hasPublicMobile: contacts.hasPublicMobile,
       mobileNumbers: contacts.mobileNumbers,
       sourceUrl: location.href,
@@ -202,7 +247,7 @@
       .flat()
       .filter((node) => {
         const value = text(node);
-        return value.length > 30 && /电话|邮箱|官网|手机|联系方式|地址|工商|统一社会信用代码/i.test(value);
+        return value.length > 30 && /\u7535\u8BDD|\u90AE\u7BB1|\u5B98\u7F51|\u624B\u673A|\u8054\u7CFB\u65B9\u5F0F|\u5730\u5740|\u5DE5\u5546|\u6CD5\u5B9A\u4EE3\u8868\u4EBA|\u6CD5\u4EBA\u4EE3\u8868|\u6CD5\u4EBA|\u8D1F\u8D23\u4EBA|\u7ECF\u8425\u8005|\u7EDF\u4E00\u793E\u4F1A\u4FE1\u7528\u4EE3\u7801/i.test(value);
       })
       .map((node) => text(node));
 

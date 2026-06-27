@@ -48,6 +48,36 @@ test("extractContacts keeps public company contacts and mobile numbers", async (
   assert.equal(contacts.website, "https://www.example.com");
 });
 
+test("extractContacts reads RiskBird legal representative from search result text", async () => {
+  const { extractContacts, mergeResult, toCsv } = await loadRules();
+  const contacts = extractContacts(`
+    河南闽豫数字云医疗科技有限公司 在营
+    法定代表人：王亚飞 注册资本：100.0万元人民币 成立日期：2022-06-22
+    电话：13461699116 邮箱：13461699116@163.com
+  `);
+
+  assert.equal(contacts.legalRepresentative, "王亚飞");
+  assert.equal(extractContacts("负责人：许健康 注册资本：- 电话：15992469900").legalRepresentative, "许健康");
+  assert.equal(extractContacts("经营者：杨海萍 注册资本：5.0万元人民币").legalRepresentative, "杨海萍");
+
+  const merged = mergeResult(
+    { companyName: "闽豫数字" },
+    {
+      matchedCompanyName: "河南闽豫数字云医疗科技有限公司",
+      legalRepresentative: contacts.legalRepresentative,
+      companyPhones: contacts.companyPhones,
+      emails: contacts.emails,
+      mobileNumbers: contacts.mobileNumbers,
+    }
+  );
+
+  assert.equal(merged.riskbirdLegalRepresentative, "王亚飞");
+  assert.match(toCsv([merged]), /"风鸟主体负责人"/);
+  assert.match(toCsv([merged]), /"王亚飞"/);
+
+  assert.equal(extractContacts("法人代表 李四 电话：13812345678").legalRepresentative, "李四");
+});
+
 test("mergeResult preserves BOSS evidence and appends riskbird fields", async () => {
   const { mergeResult } = await loadRules();
   const merged = mergeResult(
@@ -127,6 +157,7 @@ test("riskbird toCsv exports Chinese column headers", async () => {
       "BOSS招聘证据",
       "BOSS采集时间",
       "风鸟匹配公司名",
+      "风鸟主体负责人",
       "风鸟企业公开电话",
       "风鸟企业邮箱",
       "风鸟官网",
@@ -255,6 +286,8 @@ test("standalone RiskBird enricher uses search results without opening detail pa
   assert.match(contentCode, /function isCurrentSearchForCompany/);
   assert.match(contentCode, /function findBestCompanySearchResult/);
   assert.match(contentCode, /function buildSearchResult/);
+  assert.match(contentCode, /function extractLegalRepresentativeFromNode/);
+  assert.match(contentCode, /legalRepresentative: contacts\.legalRepresentative/);
   assert.match(contentCode, /matched_search/);
   assert.match(contentCode, /No matching company result found on RiskBird search page/);
   assert.doesNotMatch(contentCode, /if \(link\) \{\s*link\.click\(\);/);
@@ -272,6 +305,8 @@ test("RiskBird content scripts recheck stopped state before continuing async wor
     assert.match(code, /if \(!await isJobStillRunning\(job\)\) return;/);
     assert.match(code, /if \(!await isJobStillRunning\(job\)\) \{\s*return;\s*\}\s*location\.href = searchUrl\(companyName\)/);
     assert.match(code, /async function markSearchStarted\(job, searchStartedAt\)/);
+    assert.match(code, /function extractLegalRepresentativeFromNode/);
+    assert.match(code, /legalRepresentative = extractLegalRepresentativeFromNode/);
     assert.doesNotMatch(code, /storageSet\(\{\s*...job,\s*searchStartedAt\s*\}\)/);
   }
 });
